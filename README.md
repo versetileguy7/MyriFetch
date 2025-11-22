@@ -51,7 +51,7 @@ Run ./MyriFetch-x86_64.AppImage.
 Requirements: Python 3.10+, pip
 
 # Clone the repo
-git clone [https://github.com/YOUR_USERNAME/MyriFetch.git](https://github.com/YOUR_USERNAME/MyriFetch.git)
+git clone [https://github.com/CrabbieMike/MyriFetch.git](https://github.com/CrabbieMike/MyriFetch.git)
 cd MyriFetch
 
 # Install dependencies
