@@ -64,7 +64,3 @@ python MyriFetch.py
 ⚠️ Disclaimer
 
 This software is for archival and preservation purposes only. The developer is not affiliated with Myrient/Erista. Please support the original hardware and developers when possible.
-
-📜 License
-
-MIT License
