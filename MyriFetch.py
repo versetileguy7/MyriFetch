@@ -6,12 +6,14 @@ from bs4 import BeautifulSoup
 import os
 import json
 import threading
-import queue
 import time
 from urllib.parse import unquote, quote
 from PIL import Image
 import urllib3
 import shutil
+import traceback
+import subprocess # Added for opening folders on Linux
+import platform   # Added for OS detection
 
 # --- CONFIGURATION ---
 ctk.set_appearance_mode("Dark")
@@ -20,7 +22,7 @@ ctk.set_default_color_theme("dark-blue")
 # Silence SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- PATH FIX FOR LINUX/APPIMAGE ---
+# --- PATH FIX FOR LINUX/WINDOWS/APPIMAGE ---
 APP_NAME = "MyriFetch"
 if os.name == 'nt':
     APP_DATA = os.path.join(os.environ['APPDATA'], APP_NAME)
@@ -28,7 +30,10 @@ else:
     APP_DATA = os.path.join(os.path.expanduser("~"), ".config", APP_NAME)
 
 if not os.path.exists(APP_DATA):
-    os.makedirs(APP_DATA, exist_ok=True)
+    try:
+        os.makedirs(APP_DATA, exist_ok=True)
+    except Exception as e:
+        print(f"Failed to create config folder: {e}")
 
 CONFIG_FILE = os.path.join(APP_DATA, "myrient_ultimate.json")
 ICON_DIR = os.path.join(APP_DATA, "icons")
@@ -47,6 +52,7 @@ HEADERS = {
 }
 
 LB_NAMES = {
+    "PlayStation 3": "Sony Playstation 3",
     "PlayStation 2": "Sony Playstation 2",
     "GameCube": "Nintendo GameCube",
     "Wii": "Nintendo Wii",
@@ -61,6 +67,7 @@ LB_NAMES = {
 }
 
 CONSOLES = {
+    "PlayStation 3": "Redump/Sony - PlayStation 3/",
     "PlayStation 2": "Redump/Sony - PlayStation 2/",
     "GameCube": "Redump/Nintendo - GameCube - NKit RVZ [zstd-19-128k]/",
     "Wii": "Redump/Nintendo - Wii - NKit RVZ [zstd-19-128k]/",
@@ -74,16 +81,38 @@ CONSOLES = {
     "Nintendo 3DS": "No-Intro/Nintendo - Nintendo 3DS (Decrypted)/"
 }
 
-C = {
-    "bg": "#09090b", "card": "#18181b", "cyan": "#00f2ff",
-    "pink": "#ff0055", "text": "#ffffff", "dim": "#71717a", "success": "#00e676"
+# --- THEME DEFINITIONS ---
+THEMES = {
+    "Cyber Dark": {
+        "bg": "#09090b", "card": "#18181b", "cyan": "#00f2ff",
+        "pink": "#ff0055", "text": "#ffffff", "dim": "#71717a", "success": "#00e676"
+    },
+    "Dracula": {
+        "bg": "#282a36", "card": "#44475a", "cyan": "#8be9fd",
+        "pink": "#ff79c6", "text": "#f8f8f2", "dim": "#6272a4", "success": "#50fa7b"
+    },
+    "Matrix": {
+        "bg": "#000000", "card": "#111111", "cyan": "#00ff41",
+        "pink": "#008f11", "text": "#e0e0e0", "dim": "#333333", "success": "#003b00"
+    },
+    "Nord": {
+        "bg": "#2e3440", "card": "#3b4252", "cyan": "#88c0d0",
+        "pink": "#bf616a", "text": "#eceff4", "dim": "#4c566a", "success": "#a3be8c"
+    }
 }
+
+# Default global color dictionary (will be updated in __init__)
+C = THEMES["Cyber Dark"].copy()
 
 class UltimateApp(ctk.CTk):
     def __init__(self):
+        # 1. Load Config FIRST to apply theme before building UI
+        self.folder_mappings = self.load_config()
+        self.apply_saved_theme()
+
         super().__init__()
         self.title("MYRIFETCH // ROM MANAGER")
-        self.geometry("1100x800")
+        self.geometry("1100x850") # Slightly taller for storage bar
         self.configure(fg_color=C["bg"])
 
         self.session = requests.Session()
@@ -91,16 +120,18 @@ class UltimateApp(ctk.CTk):
         self.current_path = ""
         self.file_cache = []
         self.filtered_cache = []
-        self.download_queue = queue.Queue()
+
+        # REFACTOR: Changed from Queue to List for management capability
+        self.download_list = []
         self.is_downloading = False
         self.cancel_download = False
-        self.folder_mappings = self.load_config()
         self.console_icons = {}
         self.current_page = 0
         self.items_per_page = 100
 
         self.home_widgets = []
         self.browser_widgets = []
+        self.queue_widgets = []
         self.settings_widgets = []
 
         self.grid_columnconfigure(1, weight=1)
@@ -112,7 +143,6 @@ class UltimateApp(ctk.CTk):
         self.show_home()
         self.status_txt.configure(text="Ready")
         self.net_log("System Initialized")
-        # Initialize with empty path but don't crash if network is down
         try:
             self.refresh_dir("")
         except:
@@ -127,8 +157,31 @@ class UltimateApp(ctk.CTk):
     def save_config(self):
         with open(CONFIG_FILE, 'w') as f: json.dump(self.folder_mappings, f)
 
+    def apply_saved_theme(self):
+        """Checks config for saved theme and updates global C dict"""
+        saved_theme = self.folder_mappings.get("app_theme", "Cyber Dark")
+        if saved_theme in THEMES:
+            C.update(THEMES[saved_theme])
+
+    def change_theme(self, new_theme):
+        self.folder_mappings["app_theme"] = new_theme
+        self.save_config()
+        messagebox.showinfo("Theme Changed", "Please restart MyriFetch to fully apply the new theme.")
+
+    def change_default_region(self, new_region):
+        self.folder_mappings["default_region"] = new_region
+        self.save_config()
+        # Update the browser dropdown to match the new setting immediately
+        try:
+            self.region_var.set(new_region)
+            self.filter_list() # Re-filter list if currently viewing files
+        except:
+            pass
+
     def net_log(self, msg):
-        self.after(0, lambda: self.net_status.configure(text=f"Net: {msg}"))
+        try:
+            self.after(0, lambda: self.net_status.configure(text=f"Net: {msg}"))
+        except: pass
 
     def icon_manager(self):
         if os.path.exists(ICON_DIR):
@@ -136,12 +189,13 @@ class UltimateApp(ctk.CTk):
             except: pass
 
         time.sleep(0.5)
-        os.makedirs(ICON_DIR, exist_ok=True)
+        try:
+            os.makedirs(ICON_DIR, exist_ok=True)
+        except: pass
 
         self.net_log("Connecting to LaunchBox DB...")
         lb_urls = {}
         try:
-            # For icons, we can use the standard headers, or specific ones for Launchbox
             icon_headers = HEADERS.copy()
             icon_headers['Referer'] = 'https://gamesdb.launchbox-app.com/'
 
@@ -221,21 +275,60 @@ class UltimateApp(ctk.CTk):
         self.main_area.grid_rowconfigure(1, weight=1)
         self.main_area.grid_columnconfigure(0, weight=1)
 
+        # --- SEARCH & FILTER CONTAINER ---
+        self.search_container = ctk.CTkFrame(self.main_area, fg_color="transparent", height=40)
+        self.search_container.grid_columnconfigure(0, weight=1)
+
         self.search_var = tk.StringVar()
-        self.search_var.trace("w", self.filter_list)
-        self.entry_search = ctk.CTkEntry(self.main_area, placeholder_text="Search in current folder...", height=40,
-                                         fg_color=C["card"], border_width=0, text_color="white", textvariable=self.search_var)
+
+        self.entry_search = ctk.CTkEntry(
+            self.search_container,
+            placeholder_text="Search (Press Enter)...",
+            height=40,
+            fg_color=C["card"],
+            border_width=2,
+            border_color=C["cyan"],
+            corner_radius=20,
+            text_color="white",
+            textvariable=self.search_var
+        )
+        self.entry_search.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+
+        self.entry_search.bind("<Return>", self.filter_list)
+
+        # LOAD DEFAULT REGION FROM CONFIG
+        default_region = self.folder_mappings.get("default_region", "All Regions")
+        self.region_var = ctk.StringVar(value=default_region)
+
+        self.region_filter = ctk.CTkOptionMenu(
+            self.search_container,
+            variable=self.region_var,
+            values=["All Regions", "USA", "Europe", "Japan", "World"],
+            command=self.filter_list,
+            fg_color=C["card"],
+            button_color=C["cyan"],
+            button_hover_color=C["pink"],
+            text_color="white",
+            width=140,
+            height=40,
+            corner_radius=20
+        )
+        self.region_filter.grid(row=0, column=1, sticky="e")
+        # ---------------------------------
 
         self.frame_home = ctk.CTkFrame(self.main_area, fg_color="transparent")
         self.frame_browser = ctk.CTkFrame(self.main_area, fg_color="transparent")
         self.frame_queue = ctk.CTkFrame(self.main_area, fg_color="transparent")
         self.frame_settings = ctk.CTkFrame(self.main_area, fg_color="transparent")
 
+        # HOME TAB
         ctk.CTkLabel(self.frame_home, text="QUICK JUMP", font=("Arial", 16, "bold"), text_color=C["dim"]).pack(anchor="w", pady=10)
         self.grid_consoles = ctk.CTkScrollableFrame(self.frame_home, fg_color="transparent")
         self.grid_consoles.pack(fill="both", expand=True)
+        self.bind_scroll(self.grid_consoles, self.grid_consoles)
         self.render_home_grid()
 
+        # BROWSER TAB
         self.frame_browser.grid_rowconfigure(1, weight=1)
         self.frame_browser.grid_columnconfigure(0, weight=1)
         nav = ctk.CTkFrame(self.frame_browser, fg_color="transparent")
@@ -243,11 +336,30 @@ class UltimateApp(ctk.CTk):
         ctk.CTkButton(nav, text="⬅ Back", width=60, fg_color=C["card"], command=self.go_up).pack(side="left")
         self.lbl_path = ctk.CTkLabel(nav, text="/", text_color=C["dim"], padx=10)
         self.lbl_path.pack(side="left")
-        self.btn_map = ctk.CTkButton(nav, text="📂 Current Folder", fg_color="transparent", border_width=1,
+
+        # --- NEW NAV BUTTONS (Open & Set) ---
+        self.btn_open = ctk.CTkButton(nav, text="↗ Open", width=60, fg_color=C["card"],
+                                      hover_color=C["dim"], command=self.open_current_folder)
+        self.btn_open.pack(side="right", padx=(5, 0))
+
+        self.btn_map = ctk.CTkButton(nav, text="📂 Set Folder", fg_color="transparent", border_width=1,
                                      border_color=C["cyan"], text_color=C["cyan"], command=self.set_mapping)
         self.btn_map.pack(side="right")
+        # ------------------------------------
+
+        # --- STORAGE VISUALIZER ---
+        self.storage_frame = ctk.CTkFrame(self.frame_browser, fg_color="transparent", height=20)
+        self.storage_frame.pack(fill="x", padx=10)
+        self.storage_label = ctk.CTkLabel(self.storage_frame, text="Storage: Checking...", font=("Arial", 10), text_color=C["dim"])
+        self.storage_label.pack(side="left")
+        self.storage_bar = ctk.CTkProgressBar(self.storage_frame, height=8, progress_color=C["dim"])
+        self.storage_bar.set(0)
+        self.storage_bar.pack(side="left", fill="x", expand=True, padx=10)
+        # --------------------------
+
         self.list_frame = ctk.CTkScrollableFrame(self.frame_browser, fg_color=C["card"])
         self.list_frame.pack(fill="both", expand=True, pady=10)
+        self.bind_scroll(self.list_frame, self.list_frame)
 
         self.loading_frame = ctk.CTkFrame(self.frame_browser, fg_color="transparent")
         self.loading_label = ctk.CTkLabel(self.loading_frame, text="ACCESSING DATABANK...", font=("Arial", 18, "bold"), text_color=C["cyan"])
@@ -269,27 +381,32 @@ class UltimateApp(ctk.CTk):
                                     command=self.add_to_queue)
         self.btn_dl.pack(fill="x")
 
-        ctk.CTkLabel(self.frame_queue, text="DOWNLOAD STATUS", font=("Arial", 20, "bold")).pack(anchor="w", pady=10)
-
+        # QUEUE TAB (Updated with List for Management)
+        ctk.CTkLabel(self.frame_queue, text="ACTIVE DOWNLOAD", font=("Arial", 20, "bold")).pack(anchor="w", pady=10)
         self.queue_controls = ctk.CTkFrame(self.frame_queue, fg_color="transparent")
         self.queue_controls.pack(fill="x", pady=5)
-
         self.lbl_speed = ctk.CTkLabel(self.queue_controls, text="IDLE", font=("Consolas", 14), text_color=C["cyan"])
         self.lbl_speed.pack(side="left")
-
         self.btn_cancel = ctk.CTkButton(self.queue_controls, text="Cancel Download", fg_color=C["pink"],
                                         width=120, height=30, command=self.cancel_current, state="disabled")
         self.btn_cancel.pack(side="right")
-
         self.progress_bar = ctk.CTkProgressBar(self.frame_queue, height=15, progress_color=C["cyan"])
         self.progress_bar.set(0)
         self.progress_bar.pack(fill="x", pady=10)
-        self.log_box = ctk.CTkTextbox(self.frame_queue, fg_color=C["card"], font=("Consolas", 12))
-        self.log_box.pack(fill="both", expand=True)
 
-        ctk.CTkLabel(self.frame_settings, text="CONSOLE PATH SETTINGS", font=("Arial", 20, "bold")).pack(anchor="w", pady=10)
+        self.log_box = ctk.CTkTextbox(self.frame_queue, fg_color=C["card"], font=("Consolas", 12), height=100)
+        self.log_box.pack(fill="x", pady=(0, 10))
+
+        ctk.CTkLabel(self.frame_queue, text="PENDING QUEUE", font=("Arial", 20, "bold"), text_color=C["dim"]).pack(anchor="w", pady=10)
+        self.queue_list_frame = ctk.CTkScrollableFrame(self.frame_queue, fg_color=C["card"])
+        self.queue_list_frame.pack(fill="both", expand=True)
+        self.bind_scroll(self.queue_list_frame, self.queue_list_frame)
+
+        # SETTINGS TAB
+        ctk.CTkLabel(self.frame_settings, text="SETTINGS & PATHS", font=("Arial", 20, "bold")).pack(anchor="w", pady=10)
         self.settings_scroll = ctk.CTkScrollableFrame(self.frame_settings, fg_color=C["card"])
         self.settings_scroll.pack(fill="both", expand=True, pady=10)
+        self.bind_scroll(self.settings_scroll, self.settings_scroll)
 
     def render_home_grid(self):
         for widget in self.home_widgets:
@@ -300,30 +417,52 @@ class UltimateApp(ctk.CTk):
         self.home_widgets = []
         self.update_idletasks()
 
-        r, c = 0, 0
         MAX_COLS = 3
         self.grid_consoles.grid_columnconfigure((0,1,2), weight=1)
 
-        for name, path in CONSOLES.items():
-            card = ctk.CTkButton(
-                self.grid_consoles,
-                text=f"\n{name}",
-                image=self.console_icons.get(name),
-                compound="top",
-                width=150,
-                height=150,
-                fg_color=C["card"],
-                font=("Arial", 14, "bold"),
-                hover_color=C["pink"],
-                command=lambda p=path: self.jump_to(p)
-            )
-            card.grid(row=r, column=c, padx=10, pady=10, sticky="nsew")
-            self.bind_scroll(card, self.grid_consoles)
-            self.home_widgets.append(card)
-            c += 1
-            if c >= MAX_COLS:
-                c = 0
-                r += 1
+        GROUPS = [
+            ("SONY", ["PlayStation 1", "PlayStation 2", "PSP", "PlayStation 3"]),
+            ("NINTENDO", ["SNES", "GBA", "GameCube", "Nintendo DS", "Wii", "Nintendo 3DS"]),
+            ("SEGA", ["Dreamcast"]),
+            ("MICROSOFT", ["Xbox"])
+        ]
+
+        current_row = 0
+
+        for group_name, console_list in GROUPS:
+            header = ctk.CTkLabel(self.grid_consoles, text=group_name, font=("Arial", 14, "bold"), text_color=C["cyan"], anchor="w")
+            header.grid(row=current_row, column=0, columnspan=MAX_COLS, sticky="w", padx=10, pady=(20, 5))
+            self.bind_scroll(header, self.grid_consoles)
+            self.home_widgets.append(header)
+            current_row += 1
+
+            col = 0
+            for name in console_list:
+                if name not in CONSOLES: continue
+                path = CONSOLES[name]
+
+                card = ctk.CTkButton(
+                    self.grid_consoles,
+                    text=f"\n{name}",
+                    image=self.console_icons.get(name),
+                    compound="top",
+                    width=150,
+                    height=150,
+                    fg_color=C["card"],
+                    font=("Arial", 14, "bold"),
+                    hover_color=C["pink"],
+                    command=lambda p=path: self.jump_to(p)
+                )
+                card.grid(row=current_row, column=col, padx=10, pady=10, sticky="nsew")
+                self.bind_scroll(card, self.grid_consoles)
+                self.home_widgets.append(card)
+
+                col += 1
+                if col >= MAX_COLS:
+                    col = 0
+                    current_row += 1
+
+            if col > 0: current_row += 1
 
     def show_loader(self):
         self.list_frame.pack_forget()
@@ -344,7 +483,7 @@ class UltimateApp(ctk.CTk):
         self.frame_browser.grid_forget()
         self.frame_queue.grid_forget()
         self.frame_settings.grid_forget()
-        self.entry_search.grid_forget()
+        self.search_container.grid_forget()
         self.btn_home.configure(fg_color="transparent", text_color="white")
         self.btn_browser.configure(fg_color="transparent", text_color="white")
         self.btn_queue.configure(fg_color="transparent", text_color="white")
@@ -357,14 +496,17 @@ class UltimateApp(ctk.CTk):
 
     def show_browser(self):
         self.hide_all()
-        self.entry_search.grid(row=0, column=0, sticky="ew", pady=(0, 20))
+        self.search_container.grid(row=0, column=0, sticky="ew", pady=(0, 20))
         self.frame_browser.grid(row=1, column=0, sticky="nsew")
         self.btn_browser.configure(fg_color=C["cyan"], text_color="black")
+        # Update storage stats when entering browser
+        self.update_storage_stats()
 
     def show_queue(self):
         self.hide_all()
         self.frame_queue.grid(row=1, column=0, sticky="nsew")
         self.btn_queue.configure(fg_color=C["cyan"], text_color="black")
+        self.render_queue_list() # Update visual list
 
     def show_settings(self):
         self.hide_all()
@@ -388,19 +530,92 @@ class UltimateApp(ctk.CTk):
             except: pass
         self.settings_widgets = []
 
+        # --- THEME SELECTOR ---
+        theme_row = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
+        theme_row.pack(fill="x", pady=10)
+        self.settings_widgets.append(theme_row)
+        self.bind_scroll(theme_row, self.settings_scroll)
+
+        lbl = ctk.CTkLabel(theme_row, text="APP THEME", width=150, anchor="w", font=("Arial", 13, "bold"), text_color=C["cyan"])
+        lbl.pack(side="left", padx=10)
+        self.bind_scroll(lbl, self.settings_scroll)
+
+        current_theme_name = self.folder_mappings.get("app_theme", "Cyber Dark")
+        self.theme_var = ctk.StringVar(value=current_theme_name)
+
+        theme_dropdown = ctk.CTkOptionMenu(
+            theme_row,
+            variable=self.theme_var,
+            values=list(THEMES.keys()),
+            command=self.change_theme,
+            fg_color=C["bg"],
+            button_color=C["cyan"],
+            button_hover_color=C["pink"],
+            text_color="white",
+            corner_radius=20
+        )
+        theme_dropdown.pack(side="left", padx=10)
+        self.bind_scroll(theme_dropdown, self.settings_scroll)
+
+        hint = ctk.CTkLabel(theme_row, text="(Restart Required)", text_color=C["dim"], font=("Arial", 10))
+        hint.pack(side="left", padx=5)
+        self.bind_scroll(hint, self.settings_scroll)
+
+        # --- DEFAULT REGION SELECTOR ---
+        region_row = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
+        region_row.pack(fill="x", pady=10)
+        self.settings_widgets.append(region_row)
+        self.bind_scroll(region_row, self.settings_scroll)
+
+        lbl_reg = ctk.CTkLabel(region_row, text="DEFAULT REGION", width=150, anchor="w", font=("Arial", 13, "bold"), text_color=C["cyan"])
+        lbl_reg.pack(side="left", padx=10)
+        self.bind_scroll(lbl_reg, self.settings_scroll)
+
+        current_region = self.folder_mappings.get("default_region", "All Regions")
+        self.default_region_var = ctk.StringVar(value=current_region)
+
+        region_dropdown = ctk.CTkOptionMenu(
+            region_row,
+            variable=self.default_region_var,
+            values=["All Regions", "USA", "Europe", "Japan", "World"],
+            command=self.change_default_region,
+            fg_color=C["bg"],
+            button_color=C["cyan"],
+            button_hover_color=C["pink"],
+            text_color="white",
+            corner_radius=20
+        )
+        region_dropdown.pack(side="left", padx=10)
+        self.bind_scroll(region_dropdown, self.settings_scroll)
+
+        sep = ctk.CTkFrame(self.settings_scroll, fg_color=C["dim"], height=1)
+        sep.pack(fill="x", pady=10, padx=10)
+        self.settings_widgets.append(sep)
+        self.bind_scroll(sep, self.settings_scroll)
+
         for name, path in CONSOLES.items():
             row = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
             row.pack(fill="x", pady=5)
             self.settings_widgets.append(row)
+            self.bind_scroll(row, self.settings_scroll)
 
-            ctk.CTkLabel(row, text=name, width=150, anchor="w", font=("Arial", 13, "bold")).pack(side="left", padx=10)
+            l1 = ctk.CTkLabel(row, text=name, width=150, anchor="w", font=("Arial", 13, "bold"))
+            l1.pack(side="left", padx=10)
+            self.bind_scroll(l1, self.settings_scroll)
+
             current = self.folder_mappings.get(path)
             path_text = current if current else "Default (Ask)"
             path_color = "white" if current else C["dim"]
-            ctk.CTkLabel(row, text=path_text, text_color=path_color, anchor="w").pack(side="left", fill="x", expand=True)
-            ctk.CTkButton(row, text="Change", width=80, fg_color=C["bg"], border_width=1,
+
+            l2 = ctk.CTkLabel(row, text=path_text, text_color=path_color, anchor="w")
+            l2.pack(side="left", fill="x", expand=True)
+            self.bind_scroll(l2, self.settings_scroll)
+
+            btn = ctk.CTkButton(row, text="Change", width=80, fg_color=C["bg"], border_width=1,
                           border_color=C["cyan"], text_color=C["cyan"],
-                          command=lambda p=path: self.change_console_path(p)).pack(side="right", padx=10)
+                          command=lambda p=path: self.change_console_path(p))
+            btn.pack(side="right", padx=10)
+            self.bind_scroll(btn, self.settings_scroll)
 
     def change_console_path(self, path):
         d = filedialog.askdirectory(title=f"Select folder for {path}")
@@ -428,10 +643,9 @@ class UltimateApp(ctk.CTk):
 
         def _work():
             try:
-                self.status_txt.configure(text="Loading...")
+                self.after(0, lambda: self.status_txt.configure(text="Loading..."))
                 self.net_log(f"Listing: {target[:20]}...")
 
-                # Safe path handling for directory listing
                 clean_path = unquote(target)
                 url = BASE_URL + clean_path
 
@@ -462,8 +676,9 @@ class UltimateApp(ctk.CTk):
 
                 self.current_path = target
                 self.file_cache = parsed
-                self.filter_list()
+                self.after(0, self.filter_list)
                 self.after(0, self.update_map_btn)
+                self.after(0, self.update_storage_stats) # Update storage when path changes
                 self.after(0, lambda: self.status_txt.configure(text="Online"))
                 self.net_log("Idle")
 
@@ -477,10 +692,25 @@ class UltimateApp(ctk.CTk):
 
     def filter_list(self, *args):
         search = self.search_var.get().lower()
-        if search:
-            self.filtered_cache = [i for i in self.file_cache if search in i['name'].lower()]
-        else:
-            self.filtered_cache = self.file_cache
+        try:
+            region = self.region_var.get().lower()
+        except:
+            region = "all regions"
+
+        filtered = []
+        for i in self.file_cache:
+            name_lower = i['name'].lower()
+
+            if search and search not in name_lower:
+                continue
+
+            if i['type'] != 'dir' and region != "all regions":
+                if region not in name_lower:
+                    continue
+
+            filtered.append(i)
+
+        self.filtered_cache = filtered
         self.current_page = 0
         self.render_page()
 
@@ -496,6 +726,9 @@ class UltimateApp(ctk.CTk):
 
         self.lbl_path.configure(text=f"/{self.current_path}")
         self.checkboxes = []
+
+        # --- ALREADY DOWNLOADED CHECK ---
+        local_path = self.folder_mappings.get(self.current_path)
 
         sorted_items = sorted(self.filtered_cache, key=lambda x: (x['type'] != 'dir', x['name']))
         start = self.current_page * self.items_per_page
@@ -520,12 +753,23 @@ class UltimateApp(ctk.CTk):
                 btn.pack(fill="x")
                 self.bind_scroll(btn, self.list_frame)
             else:
+                # CHECK IF FILE EXISTS LOCALLY
+                is_owned = False
+                if local_path:
+                    if os.path.exists(os.path.join(local_path, item['name'])):
+                        is_owned = True
+
                 var = ctk.IntVar()
-                chk = ctk.CTkCheckBox(row, text=item['name'], variable=var, font=("Arial", 12), text_color="white",
-                                fg_color=C["cyan"], hover_color=C["pink"])
+                text_col = C["success"] if is_owned else "white"
+                display_text = f"✔ {item['name']}" if is_owned else item['name']
+
+                chk = ctk.CTkCheckBox(row, text=display_text, variable=var, font=("Arial", 12),
+                                      text_color=text_col, # Green if owned
+                                      fg_color=C["cyan"], hover_color=C["pink"])
                 chk.pack(side="left")
                 self.bind_scroll(chk, self.list_frame)
                 self.checkboxes.append((item['name'], var, item['href']))
+
                 lbl = ctk.CTkLabel(row, text=item['size'], text_color=C["dim"])
                 lbl.pack(side="right", padx=10)
                 self.bind_scroll(lbl, self.list_frame)
@@ -562,6 +806,51 @@ class UltimateApp(ctk.CTk):
             self.folder_mappings[self.current_path] = d
             self.save_config()
             self.update_map_btn()
+            self.update_storage_stats() # Update storage on new path
+
+    def open_current_folder(self):
+        path = self.get_local_folder()
+        if not path or not os.path.exists(path):
+            messagebox.showerror("Error", "No valid local folder set for this console.")
+            return
+
+        try:
+            if platform.system() == "Windows":
+                os.startfile(path)
+            elif platform.system() == "Darwin":
+                subprocess.Popen(["open", path])
+            else:
+                subprocess.Popen(["xdg-open", path])
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open folder:\n{e}")
+
+    def update_storage_stats(self):
+        path = self.get_local_folder()
+        if not path or not os.path.exists(path):
+            self.storage_label.configure(text="Storage: No Folder Set")
+            self.storage_bar.set(0)
+            return
+
+        try:
+            total, used, free = shutil.disk_usage(path)
+            # Calculate percentages
+            total_gb = total / (1024**3)
+            free_gb = free / (1024**3)
+            used_pct = used / total
+
+            self.storage_label.configure(text=f"Storage: {free_gb:.1f} GB Free (of {total_gb:.1f} GB)")
+            self.storage_bar.set(used_pct)
+
+            # Color logic
+            if free_gb < 10: # Less than 10GB red
+                self.storage_bar.configure(progress_color=C["pink"])
+            elif free_gb < 50: # Less than 50GB yellow/dim
+                self.storage_bar.configure(progress_color="orange")
+            else:
+                self.storage_bar.configure(progress_color=C["success"])
+        except:
+            self.storage_label.configure(text="Storage: Unknown")
+            self.storage_bar.set(0)
 
     def add_to_queue(self):
         targets = [(n, h) for n, v, h in self.checkboxes if v.get() == 1]
@@ -577,14 +866,8 @@ class UltimateApp(ctk.CTk):
             return
 
         for name, href in targets:
-            # FIX: Do NOT unquote the href for the URL. Keep the server's encoding.
-            # unquote is only used for the display name or local file path logic if needed.
             clean_path_for_url = self.current_path + href
-
-            # We need the unquoted path for the Referer (sometimes) or just logging
-            # But constructing the URL:
             url = BASE_URL + clean_path_for_url
-
             dest = os.path.join(local_dir, name)
 
             size_mb = 0
@@ -597,12 +880,51 @@ class UltimateApp(ctk.CTk):
                     except: pass
                     break
 
-            self.download_queue.put({"url": url, "path": dest, "name": name, "size_mb": size_mb})
+            # Add to LIST instead of Queue
+            self.download_list.append({"url": url, "path": dest, "name": name, "size_mb": size_mb})
             self.log(f"QUEUED: {name}")
 
         self.show_queue()
+        # Update UI List
+        self.render_queue_list()
+
         if not self.is_downloading:
             threading.Thread(target=self.process_queue, daemon=True).start()
+
+    def remove_from_queue(self, index):
+        if 0 <= index < len(self.download_list):
+            item = self.download_list.pop(index)
+            self.log(f"REMOVED: {item['name']}")
+            self.render_queue_list()
+
+    def render_queue_list(self):
+        # Clear existing
+        for widget in self.queue_widgets:
+            try: widget.destroy()
+            except: pass
+        self.queue_widgets = []
+
+        if not self.download_list:
+            lbl = ctk.CTkLabel(self.queue_list_frame, text="Queue is empty", text_color=C["dim"])
+            lbl.pack(pady=10)
+            self.queue_widgets.append(lbl)
+            return
+
+        for i, item in enumerate(self.download_list):
+            row = ctk.CTkFrame(self.queue_list_frame, fg_color="transparent")
+            row.pack(fill="x", pady=2)
+            self.queue_widgets.append(row)
+            self.bind_scroll(row, self.queue_list_frame)
+
+            name_lbl = ctk.CTkLabel(row, text=f"{i+1}. {item['name']}", anchor="w", text_color="white")
+            name_lbl.pack(side="left", padx=5, fill="x", expand=True)
+            self.bind_scroll(name_lbl, self.queue_list_frame)
+
+            # Remove Button
+            del_btn = ctk.CTkButton(row, text="❌", width=30, fg_color=C["bg"], hover_color=C["pink"],
+                                    command=lambda idx=i: self.remove_from_queue(idx))
+            del_btn.pack(side="right", padx=5)
+            self.bind_scroll(del_btn, self.queue_list_frame)
 
     def log(self, msg):
         self.log_box.insert("end", f"{msg}\n")
@@ -610,24 +932,20 @@ class UltimateApp(ctk.CTk):
 
     def play_notification(self):
         if os.name == 'nt':
-            # Windows Sound
             try:
                 import winsound
                 winsound.MessageBeep()
             except:
                 print('\a')
         else:
-            # Linux Sound
             try: os.system('paplay /usr/share/sounds/freedesktop/stereo/complete.oga &')
             except: print('\a')
 
     def dl_part(self, url, start, end, fname):
-        # Ensure per-request headers maintain the Referer
         h = self.session.headers.copy()
         h['Range'] = f"bytes={start}-{end}"
         try:
             with self.session.get(url, headers=h, stream=True, timeout=30) as r:
-                # Stricter check: If we get 200 OK but it's HTML, it failed (Range usually returns 206)
                 if 'text/html' in r.headers.get('Content-Type', '') or r.status_code == 403:
                     raise Exception("Blocked/HTML Response")
 
@@ -646,44 +964,39 @@ class UltimateApp(ctk.CTk):
         self.is_downloading = True
         self.btn_cancel.configure(state="normal", text="Cancel Download")
 
-        while not self.download_queue.empty():
+        while self.download_list:
             if self.cancel_download:
                 break
 
-            task = self.download_queue.get()
+            # Pop from list
+            task = self.download_list.pop(0)
+
+            # Update UI to reflect removal from pending list
+            self.after(0, self.render_queue_list)
+
             self.log(f"HYDRA ACTIVE: {task['name']}")
             self.net_log(f"DL: {task['name'][:15]}...")
 
             try:
-                # 1. HEAD CHECK
-                # Ensure we don't unquote the URL itself, requests handles that.
-                # But wait, if the URL has spaces, requests usually encodes them.
-                # If we manually built it with %20, requests generally leaves them alone.
-
                 head = self.session.head(task['url'], timeout=10, allow_redirects=True)
 
                 if 'text/html' in head.headers.get('Content-Type', ''):
                      self.log(f"❌ ERROR: Server returned HTML (Hotlink blocked?)")
                      self.log(f"   Try checking your IP or VPN.")
-                     self.download_queue.task_done()
                      continue
 
-                # 2. GET SIZE
                 try: total_length = int(head.headers.get('content-length', 0))
                 except: total_length = 0
                 if total_length == 0 and task['size_mb'] > 0: total_length = int(task['size_mb'] * 1024 * 1024)
 
-                # 3. DISK CHECK
                 save_folder = os.path.dirname(task['path'])
                 try:
                     total, used, free = shutil.disk_usage(save_folder)
                     if total_length > 0 and free < total_length:
                         self.log(f"❌ ERROR: Disk Full")
-                        self.download_queue.task_done()
                         continue
                 except: pass
 
-                # 4. HYDRA DOWNLOAD
                 part_size = total_length // NUM_THREADS
                 threads, parts = [], []
                 self.download_stats = {'bytes': 0}
@@ -714,18 +1027,12 @@ class UltimateApp(ctk.CTk):
 
                 if self.cancel_download:
                     self.log("🛑 CANCELLED BY USER")
-                    # Clean parts
                     for p in parts:
                          if os.path.exists(p):
                             try: os.remove(p)
                             except: pass
-                    # Clear remaining queue
-                    with self.download_queue.mutex:
-                        self.download_queue.queue.clear()
-                    self.download_queue.task_done()
                     break
 
-                # 5. STITCH
                 self.log("Stitching...")
                 if all(os.path.exists(p) for p in parts):
                     with open(task['path'], 'wb') as f_out:
@@ -745,8 +1052,6 @@ class UltimateApp(ctk.CTk):
             except Exception as e:
                 self.log(f"❌ ERROR: {e}")
 
-            self.download_queue.task_done()
-
         self.is_downloading = False
         self.cancel_download = False
         self.btn_cancel.configure(state="disabled", text="Cancel Download")
@@ -755,5 +1060,16 @@ class UltimateApp(ctk.CTk):
         self.net_log("Idle")
 
 if __name__ == "__main__":
-    app = UltimateApp()
-    app.mainloop()
+    try:
+        app = UltimateApp()
+        app.mainloop()
+    except Exception as e:
+        error_msg = traceback.format_exc()
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror("Critical Error", f"MyriFetch Crashed:\n\n{error_msg}")
+        except:
+            print("CRITICAL ERROR:")
+            print(error_msg)
+            input("Press Enter to exit...")
